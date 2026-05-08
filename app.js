@@ -18,6 +18,60 @@ let state = {
     isTestActive: false
 };
 
+
+// --- NAYA: Multi-select selections state ---
+let selections = {
+    sections: [],
+    topics: [],
+    subtopics: []
+};
+
+
+// --- NAYA: Multi-Select UI Logic ---
+window.toggleDropdown = (id) => {
+    // Dusre dropdowns band karein aur isse toggle karein
+    document.querySelectorAll('.multi-select-list').forEach(list => {
+        if(list.id !== id) list.classList.add('hidden');
+    });
+    document.getElementById(id).classList.toggle('hidden');
+};
+
+function updateDisplay(id) {
+    const display = document.getElementById(`${id}-display`);
+    const items = selections[`${id}s`]; // e.g., selections.sections
+    
+    if (items.length === 0) {
+        display.innerHTML = `<span class="text-slate-400 text-sm">Select ${id}</span>`;
+    } else {
+        display.innerHTML = items.map(item => `
+            <div class="bg-blue-600 text-white text-[11px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                ${item} 
+                <i class="fas fa-times cursor-pointer ml-1 hover:text-blue-200" 
+                   onclick="event.stopPropagation(); handleToggle('${id}', '${item}')"></i>
+            </div>
+        `).join('');
+    }
+}
+
+window.handleToggle = async (type, val) => {
+    const arr = selections[`${type}s`];
+    const index = arr.indexOf(val);
+    
+    if (index > -1) arr.splice(index, 1);
+    else arr.push(val);
+    
+    // UI ko update karein
+    updateDisplay(type);
+    renderListOnly(type); 
+
+    // --- NAYA: Click hote hi dropdown band kar do ---
+    document.getElementById(`${type}-list`).classList.add('hidden');
+
+    // Background mein fetch chalu rakhein
+    if (type === 'section') await handleSectionChange();
+    else if (type === 'topic') await handleTopicChange();
+};
+
 // UI Elements
 const screens = {
     setup: document.getElementById('setup-screen'),
@@ -67,36 +121,140 @@ async function fetchDropdownData(fieldName, elementId, filters = []) {
     }
 }
 
+// --- UPDATED: Dynamic Dropdown Engine ---
+
+async function fetchMultiDropdown(fieldName, elementId, filters = []) {
+    const listEl = document.getElementById(`${elementId}-list`);
+    if(!listEl) return;
+
+    try {
+        let q = collection(db, "questions");
+        filters.forEach(f => {
+            // Agar value array hai toh 'in' query use karein
+            if(Array.isArray(f.value) && f.value.length > 0) {
+                q = query(q, where(f.field, "in", f.value));
+            } else if(f.value && !Array.isArray(f.value)) {
+                q = query(q, where(f.field, "==", f.value));
+            }
+        });
+
+        const snapshot = await getDocs(q);
+        const uniqueValues = [...new Set(snapshot.docs.map(doc => doc.data()[fieldName]))].filter(Boolean).sort();
+        
+        listEl.innerHTML = uniqueValues.map(val => {
+            const isSelected = selections[`${elementId}s`].includes(val);
+            return `
+                <div class="p-3 hover:bg-slate-50 cursor-pointer flex justify-between items-center text-sm border-b border-slate-50 last:border-0 ${isSelected ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700'}" 
+                     onclick="handleToggle('${elementId}', '${val}')">
+                    ${val}
+                    ${isSelected ? '<i class="fas fa-check text-xs"></i>' : ''}
+                </div>`;
+        }).join('');
+        
+        if(uniqueValues.length === 0) listEl.innerHTML = `<div class="p-4 text-slate-400 text-xs italic text-center">No data available</div>`;
+        
+        updateDisplay(elementId);
+    } catch (err) { console.error("Fetch Error:", err); }
+}
+
 window.handleSubjectChange = async () => {
     const sub = document.getElementById('subject').value;
-    resetDropdowns(['section', 'topic', 'subtopic']);
-    if(sub) await fetchDropdownData("section", "section", [{field: "sub", value: sub}]); 
+    
+    // Resetting ALL selections and displays
+    selections = { sections: [], topics: [], subtopics: [] }; 
+    updateDisplay('section'); 
+    updateDisplay('topic'); 
+    updateDisplay('subtopic');
+
+    if(sub) {
+        // Sirf section load karo, topic tab load hoga jab section select hoga
+        await fetchMultiDropdown("section", "section", [{field: "sub", value: sub}]); 
+    }
+};
+
+// --- NAYA: Render List Only (Error fix karne ke liye) ---
+// Ye function cached data ya dynamic data ko dropdown mein render karega
+function renderListOnly(type, uniqueValues) {
+    const listEl = document.getElementById(`${type}-list`);
+    if (!listEl || !uniqueValues) return;
+
+    listEl.innerHTML = uniqueValues.map(val => {
+        const isSelected = selections[`${type}s`].includes(val);
+        return `
+            <div class="p-3 hover:bg-blue-50 cursor-pointer flex justify-between items-center text-sm ${isSelected ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}" 
+                 onclick="handleToggle('${type}', '${val}')">
+                <span>${val}</span>
+                ${isSelected ? '<i class="fas fa-check-circle text-xs"></i>' : ''}
+            </div>`;
+    }).join('');
 }
+
+// --- UPDATED: handleToggle (Jo dropdown hide karega aur fetch trigger karega) ---
+window.handleToggle = async (type, val) => {
+    const arr = selections[`${type}s`];
+    const index = arr.indexOf(val);
+    
+    // Toggle logic
+    if (index > -1) arr.splice(index, 1);
+    else arr.push(val);
+    
+    // UI Update (Tags dikhana)
+    updateDisplay(type);
+    
+    // Dropdown ko hide karein click ke baad
+    const listEl = document.getElementById(`${type}-list`);
+    if(listEl) listEl.classList.add('hidden');
+
+    const sub = document.getElementById('subject').value;
+    
+    // Dependent levels ko trigger karein
+    if (type === 'section') {
+        selections.topics = []; selections.subtopics = [];
+        updateDisplay('topic'); updateDisplay('subtopic');
+        if (selections.sections.length > 0) {
+            await fetchMultiDropdown("topic", "topic", [{field: "sub", value: sub}, {field: "section", value: selections.sections}]);
+        }
+    } 
+    else if (type === 'topic') {
+        selections.subtopics = [];
+        updateDisplay('subtopic');
+        if (selections.topics.length > 0) {
+            await fetchMultiDropdown("subtopic", "subtopic", [{field: "sub", value: sub}, {field: "topic", value: selections.topics}]);
+        }
+    }
+};
 
 window.handleSectionChange = async () => {
     const sub = document.getElementById('subject').value;
-    const section = document.getElementById('section').value;
-    resetDropdowns(['topic', 'subtopic']);
-    if(section) {
-        await fetchDropdownData("topic", "topic", [
+    selections.topics = []; selections.subtopics = []; // Reset children
+    updateDisplay('topic'); updateDisplay('subtopic');
+    
+    if(selections.sections.length > 0) {
+        await fetchMultiDropdown("topic", "topic", [
             {field: "sub", value: sub},
-            {field: "section", value: section}
+            {field: "section", value: selections.sections}
         ]);
     }
+    // Refresh current list UI (checkmarks ke liye)
+    await fetchMultiDropdown("section", "section", [{field: "sub", value: sub}]);
 };
 
 window.handleTopicChange = async () => {
     const sub = document.getElementById('subject').value;
-    const section = document.getElementById('section').value;
-    const topic = document.getElementById('topic').value;
-    resetDropdowns(['subtopic']);
-    if(topic) {
-        await fetchDropdownData("subtopic", "subtopic", [
+    selections.subtopics = [];
+    updateDisplay('subtopic');
+    
+    if(selections.topics.length > 0) {
+        await fetchMultiDropdown("subtopic", "subtopic", [
             {field: "sub", value: sub},
-            {field: "section", value: section},
-            {field: "topic", value: topic}
+            {field: "topic", value: selections.topics}
         ]);
     }
+    // Refresh topic list UI
+    await fetchMultiDropdown("topic", "topic", [
+        {field: "sub", value: sub},
+        {field: "section", value: selections.sections}
+    ]);
 };
 
 function resetDropdowns(ids) {
@@ -111,11 +269,9 @@ function resetDropdowns(ids) {
 
 // --- Dynamic Smart Test Generation ---
 window.generateTest = async () => {
+    // 1. Config gathering
     const config = {
         sub: document.getElementById('subject').value,
-        section: document.getElementById('section').value,
-        topic: document.getElementById('topic').value,
-        subtopic: document.getElementById('subtopic').value,
         difficulty: document.getElementById('difficulty').value,
         count: parseInt(document.getElementById('num-questions').value) || 5,
         time: parseInt(document.getElementById('time-limit').value) || 10
@@ -128,14 +284,13 @@ window.generateTest = async () => {
         return;
     }
 
-    // --- NEW: Dynamic Weightage Calculation ---
+    // 2. Mixed Weightage Logic
     let weightage = { easy: 30, moderate: 50, hard: 20 };
     if (config.difficulty === "Mixed") {
         weightage.easy = parseInt(document.getElementById('w-easy').value) || 0;
         weightage.moderate = parseInt(document.getElementById('w-moderate').value) || 0;
         weightage.hard = parseInt(document.getElementById('w-hard').value) || 0;
 
-        // Validation: Total 100% hona chahiye
         if (weightage.easy + weightage.moderate + weightage.hard !== 100) {
             alert(`Bhai, total weightage 100% hona chahiye! (Abhi ${weightage.easy + weightage.moderate + weightage.hard}% hai)`);
             return;
@@ -146,11 +301,20 @@ window.generateTest = async () => {
 
     try {
         let finalQuestions = [];
+        
+        // 3. Base Constraints (Using the Multi-select arrays)
+        // Note: Firebase 'in' operator empty array handle nahi karta, isliye check lagaya hai
         let baseConstraints = [where("sub", "==", config.sub)];
         
-        if (config.section) baseConstraints.push(where("section", "==", config.section));
-        if (config.topic) baseConstraints.push(where("topic", "==", config.topic));
-        if (config.subtopic) baseConstraints.push(where("subtopic", "==", config.subtopic));
+        if (selections.sections && selections.sections.length > 0) {
+            baseConstraints.push(where("section", "in", selections.sections));
+        }
+        if (selections.topics && selections.topics.length > 0) {
+            baseConstraints.push(where("topic", "in", selections.topics));
+        }
+        if (selections.subtopics && selections.subtopics.length > 0) {
+            baseConstraints.push(where("subtopic", "in", selections.subtopics));
+        }
 
         const shuffleArray = (array) => {
             for (let i = array.length - 1; i > 0; i--) {
@@ -160,27 +324,28 @@ window.generateTest = async () => {
             return array;
         };
 
+        // 4. Fetching Logic
         if (config.difficulty === "Mixed") {
-            // --- UPDATED MIXED LOGIC: Based on user weightage ---
             const counts = {
                 Easy: Math.round(config.count * (weightage.easy / 100)),
                 Moderate: Math.round(config.count * (weightage.moderate / 100)),
                 Hard: Math.round(config.count * (weightage.hard / 100))
             };
             
-            // Adjust total count if rounding causes issues (e.g. 10 questions, 33% each)
+            // Rounding adjust
             let currentTotal = counts.Easy + counts.Moderate + counts.Hard;
-            if (currentTotal < config.count) counts.Moderate += (config.count - currentTotal);
-            else if (currentTotal > config.count) counts.Moderate -= (currentTotal - config.count);
+            if (currentTotal !== config.count) {
+                counts.Moderate += (config.count - currentTotal);
+            }
 
             const levels = [
-                { ui: 'Easy', db: 'Easy', req: counts.Easy },
-                { ui: 'Moderate', db: 'Medium', req: counts.Moderate },
-                { ui: 'Hard', db: 'Hard', req: counts.Hard }
+                { db: 'Easy', req: counts.Easy },
+                { db: 'Medium', req: counts.Moderate }, // Moderate is Medium in DB
+                { db: 'Hard', req: counts.Hard }
             ];
 
             for (const lvl of levels) {
-                if (lvl.req <= 0) continue; // Agar kisi ka weightage 0% hai toh query mat karo
+                if (lvl.req <= 0) continue;
 
                 const q = query(collection(db, "questions"), ...baseConstraints, where("difficulty", "==", lvl.db));
                 const snap = await getDocs(q);
@@ -191,7 +356,7 @@ window.generateTest = async () => {
                 finalQuestions.push(...picked);
             }
         } else {
-            // --- PEHLE WALA LOGIC (Single Difficulty) ---
+            // Single Difficulty Logic
             const targetDiff = mapDiff(config.difficulty); 
             const q = query(collection(db, "questions"), ...baseConstraints, where("difficulty", "==", targetDiff));
             const snap = await getDocs(q);
@@ -204,7 +369,7 @@ window.generateTest = async () => {
             throw new Error("Bhai, is combination mein questions nahi mile. Filter badal ke dekho!");
         }
 
-        // Final Shuffle and State Reset
+        // 5. Finalize & Start
         state.testData = shuffleArray(finalQuestions);
         state.currentQuestionIndex = 0;
         state.userAnswers = {};
@@ -376,45 +541,65 @@ window.finishTest = () => {
     let skipped = 0;
     let analysisHtml = '';
 
-    state.testData.forEach((q, i) => {
-        const uAns = state.userAnswers[i];
-        const isCorrect = uAns !== undefined && uAns === q.correct;
-        
-        if (uAns === undefined) skipped++;
-        else if (isCorrect) correct++;
-        else wrong++;
+    // --- finishTest function ke andar loop ke part ko isse replace karein ---
+state.testData.forEach((q, i) => {
+    const uAns = state.userAnswers[i];
+    const isCorrect = uAns !== undefined && uAns === q.correct;
+    
+    if (uAns === undefined) skipped++;
+    else if (isCorrect) correct++;
+    else wrong++;
 
-        // Render Question Card
-        analysisHtml += `
-            <div class="bg-white rounded-3xl p-6 shadow-sm border-l-8 ${uAns === undefined ? 'border-l-slate-300' : (isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500')} mb-6">
-                <div class="flex justify-between items-center mb-3">
-                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Question ${i + 1}</span>
-                    <span class="px-2 py-1 rounded text-[9px] font-bold uppercase ${isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}">
-                        ${uAns === undefined ? 'Skipped' : (isCorrect ? 'Correct' : 'Incorrect')}
-                    </span>
-                </div>
-                
-                <h4 class="text-lg font-bold text-slate-800 mb-4">${q.text}</h4>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div class="p-4 rounded-2xl ${uAns === undefined ? 'bg-slate-50' : (isCorrect ? 'bg-emerald-50 border border-emerald-100' : 'bg-rose-50 border border-rose-100')}">
-                        <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Your Answer</p>
-                        <p class="font-bold ${isCorrect ? 'text-emerald-700' : 'text-rose-700'}">
-                            ${uAns !== undefined ? q.options[uAns] : 'Not Attempted'}
-                        </p>
-                    </div>
-                    <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
-                        <p class="text-[10px] font-bold text-emerald-600 uppercase mb-1">Correct Answer</p>
-                        <p class="font-bold text-emerald-700">${q.options[q.correct]}</p>
-                    </div>
-                </div>
+    analysisHtml += `
+        <div class="bg-white rounded-3xl p-6 shadow-sm border-l-8 ${uAns === undefined ? 'border-l-slate-300' : (isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500')} mb-6">
+            
+            <!-- Metadata Header Row -->
+            <div class="flex flex-wrap gap-2 mb-4 border-b border-slate-50 pb-3">
+                <span class="bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
+                    <i class="fas fa-book mr-1"></i>${q.sub || 'N/A'}
+                </span>
+                <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
+                    <i class="fas fa-layer-group mr-1"></i>${q.section || 'N/A'}
+                </span>
+                <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
+                    <i class="fas fa-tag mr-1"></i>${q.topic || 'N/A'}
+                </span>
+                <span class="bg-slate-50 text-slate-500 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
+                    <i class="fas fa-list-ul mr-1"></i>${q.subtopic || 'N/A'}
+                </span>
+                <span class="px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter ${q.difficulty === 'Hard' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'}">
+                    <i class="fas fa-signal mr-1"></i>${q.difficulty || 'N/A'}
+                </span>
+            </div>
 
-                <div class="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                    <p class="text-xs font-black text-indigo-600 uppercase mb-1 tracking-tighter">Explanation:</p>
-                    <div class="text-sm text-indigo-900 leading-relaxed">${q.sol || 'No detailed explanation provided for this question.'}</div>
+            <div class="flex justify-between items-center mb-3">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Question ${i + 1}</span>
+                <span class="px-2 py-1 rounded text-[9px] font-bold uppercase ${isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}">
+                    ${uAns === undefined ? 'Skipped' : (isCorrect ? 'Correct' : 'Incorrect')}
+                </span>
+            </div>
+            
+            <h4 class="text-lg font-bold text-slate-800 mb-4">${q.text}</h4>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="p-4 rounded-2xl ${uAns === undefined ? 'bg-slate-50' : (isCorrect ? 'bg-emerald-50 border border-emerald-100' : 'bg-rose-50 border border-rose-100')}">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Your Answer</p>
+                    <p class="font-bold ${isCorrect ? 'text-emerald-700' : 'text-rose-700'}">
+                        ${uAns !== undefined ? q.options[uAns] : 'Not Attempted'}
+                    </p>
                 </div>
-            </div>`;
-    });
+                <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+                    <p class="text-[10px] font-bold text-emerald-600 uppercase mb-1">Correct Answer</p>
+                    <p class="font-bold text-emerald-700">${q.options[q.correct]}</p>
+                </div>
+            </div>
+
+            <div class="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                <p class="text-xs font-black text-indigo-600 uppercase mb-1 tracking-tighter">Explanation:</p>
+                <div class="text-sm text-indigo-900 leading-relaxed">${q.sol || 'No detailed explanation provided.'}</div>
+            </div>
+        </div>`;
+});
 
     // 1. Accuracy Calculation
     const totalQuestions = state.testData.length;
@@ -460,5 +645,14 @@ function showScreen(screenKey) {
     window.scrollTo(0,0);
 }
 
+
+// Dropdown ke bahar click karne par band karein
+window.addEventListener('click', (e) => {
+    if (!e.target.closest('.relative')) {
+        document.querySelectorAll('.multi-select-list').forEach(list => {
+            list.classList.add('hidden');
+        });
+    }
+});
 
 window.resetApp = () => window.location.reload();
