@@ -501,9 +501,33 @@ function updateTimerDisplay() {
 
 window.jumpTo = (i) => { state.currentQuestionIndex = i; renderQuestion(); };
 
+// Optimized selectOption function
 window.selectOption = (idx) => {
+    // State update karein
     state.userAnswers[state.currentQuestionIndex] = idx;
-    renderQuestion();
+
+    // Poora renderQuestion call karne ke bajaye, sirf buttons update karein
+    const buttons = document.querySelectorAll('.option-card');
+    buttons.forEach((btn, i) => {
+        const circle = btn.querySelector('.shrink-0'); // Letter circle (A, B, C, D)
+        
+        if (i === idx) {
+            // Selected style
+            btn.classList.add('border-indigo-600', 'bg-indigo-50', 'ring-2', 'ring-indigo-100');
+            btn.classList.remove('border-slate-100');
+            circle.classList.add('bg-indigo-600', 'text-white');
+            circle.classList.remove('bg-slate-100', 'text-slate-500');
+        } else {
+            // Unselected style
+            btn.classList.remove('border-indigo-600', 'bg-indigo-50', 'ring-2', 'ring-indigo-100');
+            btn.classList.add('border-slate-100');
+            circle.classList.remove('bg-indigo-600', 'text-white');
+            circle.classList.add('bg-slate-100', 'text-slate-500');
+        }
+    });
+
+    // Sidebar ko update karein bina question re-render kiye
+    updateSidebarUI();
 };
 
 window.nextQuestion = () => {
@@ -601,23 +625,46 @@ state.testData.forEach((q, i) => {
         </div>`;
 });
 
-    // 1. Accuracy Calculation
-    const totalQuestions = state.testData.length;
-    const scorePct = Math.round((correct / totalQuestions) * 100);
 
-    // 2. Update UI Elements
-    const update = (id, val) => { if(document.getElementById(id)) document.getElementById(id).textContent = val; };
+// FinishTest function ke andar:
+const totalQuestions = state.testData.length;
+const scorePct = Math.round((correct / totalQuestions) * 100);
+const correctEl = document.getElementById('correct-count');
+const wrongEl = document.getElementById('wrong-count');
+const percentEl = document.getElementById('score-percent');
+
+if (correctEl) correctEl.textContent = correct;
+if (wrongEl) wrongEl.textContent = wrong;
+if (percentEl) percentEl.textContent = `${scorePct}%`;
+
+const circle = document.getElementById('score-circle');
+if(circle) {
+    const circumference = 440; // 2 * PI * r
+    // Offset calculation: jitna percentage hai, utna dash kam (gayab) karna hai
+    const offset = circumference - (scorePct / 100) * circumference;
     
-    update('score-percent', `${scorePct}%`);
-    update('correct-count', correct);
-    update('wrong-count', wrong);
-    
-    // 3. Progress Circle Animation (Accuracy)
-    // Formula: DashArray = (Percent, 100)
-    const circle = document.getElementById('score-circle');
-    if(circle) {
-        circle.setAttribute('stroke-dasharray', `${scorePct}, 100`);
+    // Set both dasharray and offset
+    circle.style.strokeDasharray = circumference;
+    circle.style.strokeDashoffset = offset;
+}
+
+const badgeEl = document.getElementById('result-badge');
+if (badgeEl) {
+    if (scorePct >= 80) {
+        badgeEl.textContent = "Excellent! 🏆";
+        badgeEl.className = "mt-2 text-sm px-4 py-1 inline-block rounded-full bg-emerald-50 text-emerald-700 font-bold";
+    } else if (scorePct >= 50) {
+        badgeEl.textContent = "Good Effort 👍";
+        badgeEl.className = "mt-2 text-sm px-4 py-1 inline-block rounded-full bg-blue-50 text-blue-700 font-bold";
+    } else {
+        badgeEl.textContent = "Keep Practicing! 💪";
+        badgeEl.className = "mt-2 text-sm px-4 py-1 inline-block rounded-full bg-rose-50 text-rose-700 font-bold";
     }
+}
+
+
+
+
 
     // 4. Inject Analysis
     const container = document.getElementById('analysis-container');
