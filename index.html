@@ -130,15 +130,24 @@
     transition: all 0.3s ease;
 }
 
+/* Update your .option-card and add .selected-option */
+
 .option-card {
-    border-width: 2px;
+    border: 2px solid #e2e8f0; /* Default border hamesha rakhein */
     cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease; /* Transitions limited rakhein */
+    user-select: none; /* Text selection blue hone se rokta hai */
 }
 
-/* MathJax Container Scrolling (For long equations) */
+/* Jab option select ho tab sirf color badlein, size nahi */
+.option-card.selected {
+    border-color: #4f46e5 !important; /* Indigo-600 */
+    background-color: #f5f3ff; /* Indigo-50 */
+
+/* MathJax flickering container fix */
 #question-container {
+    min-height: 100px; /* Loading ke waqt layout jump na kare */
     overflow-x: auto;
-    word-wrap: break-word;
 }
 
 /* Navbar shadow and blur */
@@ -159,11 +168,7 @@ nav {
     height: calc(100vh - 64px - 72px); /* Header aur Footer ki height minus ki */
 }
 
-/* MathJax equations responsive rahein */
-#question-container {
-    max-width: 100%;
-    overflow-x: auto;
-}
+
  
  </style>
 </head>
@@ -382,10 +387,17 @@ nav {
                 <div class="lg:col-span-1 space-y-6">
                     <div class="glass-card p-8 rounded-3xl text-center">
                         <div class="relative w-40 h-40 mx-auto mb-6">
-                            <svg class="w-full h-full transform -rotate-90">
-                                <circle cx="80" cy="80" r="70" stroke="currentColor" stroke-width="12" fill="transparent" class="text-slate-100" />
-                                <circle id="score-circle" cx="80" cy="80" r="70" stroke="currentColor" stroke-width="12" fill="transparent" stroke-dasharray="440" stroke-dashoffset="440" class="text-blue-600 transition-all duration-1000" />
-                            </svg>
+                            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 160 160">
+                <circle cx="80" cy="80" r="70" 
+                    stroke="currentColor" stroke-width="12" fill="transparent" 
+                    class="text-slate-100" />
+                
+                <circle id="score-circle" cx="80" cy="80" r="70" 
+                    stroke="currentColor" stroke-width="12" fill="transparent" 
+                    stroke-dasharray="440" stroke-dashoffset="440" 
+                    stroke-linecap="round"
+                    class="text-blue-600 transition-all duration-1000 ease-out" />
+            </svg>
                             <div class="absolute inset-0 flex flex-col items-center justify-center">
                                 <span id="score-percent" class="text-4xl font-black text-slate-800">0%</span>
                                 <span class="text-xs font-bold text-slate-400">ACCURACY</span>
