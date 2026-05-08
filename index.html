@@ -32,7 +32,48 @@
             font-family: 'Plus Jakarta Sans', sans-serif;
             background-color: #f8fafc;
             color: #1e293b;
-        }
+        }/* Multi-select list fix */
+.multi-select-list {
+    display: none;
+    position: absolute;
+    z-index: 9999; /* Isse dropdown hamesha upar rahega */
+    width: 100%;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+    margin-top: 4px;
+}
+
+/* Jab hidden class na ho tabhi dikhe */
+.multi-select-list:not(.hidden) {
+    display: block;
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Tag style (Blue badges) */
+.tag-badge {
+    background: #2563eb;
+    color: white;
+    padding: 2px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: transform 0.1s active;
+}
+
+@keyframes popIn {
+    from { transform: scale(0.9); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
 
         .glass-card {
             background: rgba(255, 255, 255, 0.9);
@@ -163,23 +204,27 @@ nav {
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <!-- Left: Form -->
                 <div class="lg:col-span-2 space-y-6">
-                    <div class="glass-card p-8 rounded-3xl shadow-sm border border-slate-200">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="space-y-2">
-                                <label class="text-sm font-semibold text-slate-700">Subject</label>
-                                <select id="subject" onchange="handleSubjectChange()" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all">
-                                    <option value="">Select Subject</option>
-                                </select>
-                            </div>
-                            <div class="space-y-2">
-                                <label class="text-sm font-semibold text-slate-700">Difficulty Level</label>
-                                <select id="difficulty" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
-                                    <option value="Easy">Easy (Foundation)</option>
-                                    <option value="Moderate" selected>Moderate (Standard)</option>
-                                    <option value="Hard">Hard (Expert)</option>
-                                    <option value="Mixed">Mix Test</option>
-                                </select>
-                                <div id="weightage-section" class="hidden mt-4 p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-300 animate-fade-in">
+    <div class="glass-card p-8 rounded-3xl shadow-sm border border-slate-200">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div class="space-y-2">
+                <label class="text-sm font-semibold text-slate-700">Subject</label>
+                <select id="subject" onchange="handleSubjectChange()" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none">
+                    <option value="">Select Subject</option>
+                </select>
+            </div>
+
+            <div class="space-y-2">
+                <label class="text-sm font-semibold text-slate-700">Difficulty Level</label>
+                <select id="difficulty" class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl outline-none">
+                    <option value="Easy">Easy</option>
+                    <option value="Moderate" selected>Moderate</option>
+                    <option value="Hard">Hard</option>
+                    <option value="Mixed">Mixed</option>
+                </select>
+            </div>
+
+             <div id="weightage-section" class="hidden mt-4 p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-300 animate-fade-in">
     <p class="text-[11px] font-bold text-slate-500 uppercase mb-3 tracking-widest">Difficulty Weightage (%)</p>
     <div class="grid grid-cols-3 gap-3">
         <div>
@@ -196,28 +241,34 @@ nav {
         </div>
     </div>
 </div>
-                            </div>
-                            <div class="space-y-2">
-                                <label class="text-sm font-semibold text-slate-700">Section</label>
-                                <select id="section" onchange="handleSectionChange()" disabled class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50">
-                                    <option value="">Choose Subject first</option>
-                                </select>
-                            </div>
-                            <div class="space-y-2">
-                                <label class="text-sm font-semibold text-slate-700">Topic</label>
-                                <select id="topic" onchange="handleTopicChange()" disabled class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50">
-                                    <option value="">Choose Section first</option>
-                                </select>
-                            </div>
-                            <div class="space-y-2 md:col-span-2">
-                                <label class="text-sm font-semibold text-slate-700">Sub-topic</label>
-                                <select id="subtopic" disabled class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none disabled:opacity-50">
-                                    <option value="">Choose Topic first</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
+
+            <div class="space-y-2 relative z-[30]">
+                <label class="text-sm font-semibold text-slate-700">Section</label>
+                <div id="section-display" onclick="toggleDropdown('section-list')" class="min-h-[50px] w-full bg-slate-50 border border-slate-200 p-2 rounded-xl flex flex-wrap gap-2 cursor-pointer items-center transition-all">
+                    <span class="text-slate-400 text-sm">Select section</span>
                 </div>
+                <div id="section-list" class="multi-select-list hidden absolute w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto"></div>
+            </div>
+
+            <div class="space-y-2 relative z-[20]">
+                <label class="text-sm font-semibold text-slate-700">Topic</label>
+                <div id="topic-display" onclick="toggleDropdown('topic-list')" class="min-h-[50px] w-full bg-slate-50 border border-slate-200 p-2 rounded-xl flex flex-wrap gap-2 cursor-pointer items-center transition-all">
+                    <span class="text-slate-400 text-sm">Select topic</span>
+                </div>
+                <div id="topic-list" class="multi-select-list hidden absolute w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto"></div>
+            </div>
+
+            <div class="space-y-2 md:col-span-2 relative z-[10]">
+                <label class="text-sm font-semibold text-slate-700">Sub-topic</label>
+                <div id="subtopic-display" onclick="toggleDropdown('subtopic-list')" class="min-h-[50px] w-full bg-slate-50 border border-slate-200 p-2 rounded-xl flex flex-wrap gap-2 cursor-pointer items-center transition-all">
+                    <span class="text-slate-400 text-sm">Select sub-topic</span>
+                </div>
+                <div id="subtopic-list" class="multi-select-list hidden absolute w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto"></div>
+            </div>
+
+        </div>
+    </div>
+</div>
 
                 <!-- Right: Stats/Rules -->
                 <div class="space-y-6">
