@@ -269,7 +269,7 @@ function resetDropdowns(ids) {
 
 // --- Dynamic Smart Test Generation ---
 window.generateTest = async () => {
-    // 1. Config gathering
+    // 1. Config gathering (No change)
     const config = {
         sub: document.getElementById('subject').value,
         difficulty: document.getElementById('difficulty').value,
@@ -284,7 +284,7 @@ window.generateTest = async () => {
         return;
     }
 
-    // 2. Mixed Weightage Logic
+    // 2. Mixed Weightage Logic (No change)
     let weightage = { easy: 30, moderate: 50, hard: 20 };
     if (config.difficulty === "Mixed") {
         weightage.easy = parseInt(document.getElementById('w-easy').value) || 0;
@@ -301,20 +301,52 @@ window.generateTest = async () => {
 
     try {
         let finalQuestions = [];
+
+        // --- NAYA: Helper function to fetch data in chunks of 30 ---
+        // Ye aapke filters ko handle karega bina 30-limit error ke
+       const fetchAllWithChunks = async (colRef, baseConstraints, difficulty) => {
+    const results = [];
+    
+    // LOGIC: Jo sabse deep level selected hai, sirf usi ka filter lagao
+    let filterArray = [];
+    let filterField = "";
+
+    if (selections.subtopics && selections.subtopics.length > 0) {
+        filterArray = selections.subtopics;
+        filterField = "subtopic";
+    } else if (selections.topics && selections.topics.length > 0) {
+        filterArray = selections.topics;
+        filterField = "topic";
+    } else if (selections.sections && selections.sections.length > 0) {
+        filterArray = selections.sections;
+        filterField = "section";
+    }
+
+    // Agar koi multi-select filter nahi hai (sirf Subject hai)
+    if (filterArray.length === 0) {
+        const q = query(colRef, where("sub", "==", config.sub), where("difficulty", "==", difficulty));
+        const snap = await getDocs(q);
+        return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    }
+
+    // Chunking logic (30 limit bypass)
+    for (let i = 0; i < filterArray.length; i += 30) {
+        const chunk = filterArray.slice(i, i + 30);
         
-        // 3. Base Constraints (Using the Multi-select arrays)
-        // Note: Firebase 'in' operator empty array handle nahi karta, isliye check lagaya hai
-        let baseConstraints = [where("sub", "==", config.sub)];
+        // Yahan sirf EK main filter field use hogi (subtopic OR topic OR section)
+        // Isse "Strict AND" ki wajah se data kam aane wali problem khatam ho jayegi
+        const q = query(
+            colRef, 
+            where("sub", "==", config.sub),
+            where(filterField, "in", chunk), 
+            where("difficulty", "==", difficulty)
+        );
         
-        if (selections.sections && selections.sections.length > 0) {
-            baseConstraints.push(where("section", "in", selections.sections));
-        }
-        if (selections.topics && selections.topics.length > 0) {
-            baseConstraints.push(where("topic", "in", selections.topics));
-        }
-        if (selections.subtopics && selections.subtopics.length > 0) {
-            baseConstraints.push(where("subtopic", "in", selections.subtopics));
-        }
+        const snap = await getDocs(q);
+        snap.forEach(doc => results.push({ id: doc.id, ...doc.data() }));
+    }
+    return results;
+};
 
         const shuffleArray = (array) => {
             for (let i = array.length - 1; i > 0; i--) {
@@ -324,7 +356,9 @@ window.generateTest = async () => {
             return array;
         };
 
-        // 4. Fetching Logic
+        // 4. Fetching Logic (Updated with Chunk Helper)
+        const colRef = collection(db, "questions");
+
         if (config.difficulty === "Mixed") {
             const counts = {
                 Easy: Math.round(config.count * (weightage.easy / 100)),
@@ -332,7 +366,6 @@ window.generateTest = async () => {
                 Hard: Math.round(config.count * (weightage.hard / 100))
             };
             
-            // Rounding adjust
             let currentTotal = counts.Easy + counts.Moderate + counts.Hard;
             if (currentTotal !== config.count) {
                 counts.Moderate += (config.count - currentTotal);
@@ -340,28 +373,21 @@ window.generateTest = async () => {
 
             const levels = [
                 { db: 'Easy', req: counts.Easy },
-                { db: 'Medium', req: counts.Moderate }, // Moderate is Medium in DB
+                { db: 'Medium', req: counts.Moderate },
                 { db: 'Hard', req: counts.Hard }
             ];
 
             for (const lvl of levels) {
                 if (lvl.req <= 0) continue;
-
-                const q = query(collection(db, "questions"), ...baseConstraints, where("difficulty", "==", lvl.db));
-                const snap = await getDocs(q);
-                let levelPool = [];
-                snap.forEach(doc => levelPool.push({ id: doc.id, ...doc.data() }));
-                
+                // Using chunk helper here
+                let levelPool = await fetchAllWithChunks(colRef, [], lvl.db);
                 const picked = shuffleArray(levelPool).slice(0, lvl.req);
                 finalQuestions.push(...picked);
             }
         } else {
-            // Single Difficulty Logic
             const targetDiff = mapDiff(config.difficulty); 
-            const q = query(collection(db, "questions"), ...baseConstraints, where("difficulty", "==", targetDiff));
-            const snap = await getDocs(q);
-            let pool = [];
-            snap.forEach(doc => pool.push({ id: doc.id, ...doc.data() }));
+            // Using chunk helper here too
+            let pool = await fetchAllWithChunks(colRef, [], targetDiff);
             finalQuestions = shuffleArray(pool).slice(0, config.count);
         }
 
@@ -369,7 +395,7 @@ window.generateTest = async () => {
             throw new Error("Bhai, is combination mein questions nahi mile. Filter badal ke dekho!");
         }
 
-        // 5. Finalize & Start
+        // 5. Finalize & Start (No change)
         state.testData = shuffleArray(finalQuestions);
         state.currentQuestionIndex = 0;
         state.userAnswers = {};
