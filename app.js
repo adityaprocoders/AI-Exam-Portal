@@ -53,6 +53,7 @@ function updateDisplay(id) {
     }
 }
 
+// --- OPTIMIZED: handleToggle ---
 window.handleToggle = async (type, val) => {
     const arr = selections[`${type}s`];
     const index = arr.indexOf(val);
@@ -60,16 +61,39 @@ window.handleToggle = async (type, val) => {
     if (index > -1) arr.splice(index, 1);
     else arr.push(val);
     
-    // UI ko update karein
     updateDisplay(type);
-    renderListOnly(type); 
 
-    // --- NAYA: Click hote hi dropdown band kar do ---
-    document.getElementById(`${type}-list`).classList.add('hidden');
-
-    // Background mein fetch chalu rakhein
-    if (type === 'section') await handleSectionChange();
-    else if (type === 'topic') await handleTopicChange();
+    const sub = document.getElementById('subject').value;
+    
+    // 🔥 FIX: Sirf dependent levels ko update karein, current level ko dobara fetch na karein
+    if (type === 'section') {
+        selections.topics = []; selections.subtopics = [];
+        updateDisplay('topic'); updateDisplay('subtopic');
+        
+        // Sirf tab fetch karein jab sections selected hon
+        if (selections.sections.length > 0) {
+            await fetchMultiDropdown("topic", "topic", [
+                {field: "sub", value: sub}, 
+                {field: "section", value: selections.sections}
+            ]);
+        } else {
+            // Agar section khali kar diya toh niche wale dropdowns bhi khali
+            document.getElementById('topic-list').innerHTML = "";
+            document.getElementById('subtopic-list').innerHTML = "";
+        }
+    } 
+    else if (type === 'topic') {
+        selections.subtopics = [];
+        updateDisplay('subtopic');
+        if (selections.topics.length > 0) {
+            await fetchMultiDropdown("subtopic", "subtopic", [
+                {field: "sub", value: sub}, 
+                {field: "topic", value: selections.topics}
+            ]);
+        } else {
+            document.getElementById('subtopic-list').innerHTML = "";
+        }
+    }
 };
 
 // UI Elements
