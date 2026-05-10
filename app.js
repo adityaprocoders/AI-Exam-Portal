@@ -581,12 +581,21 @@ window.selectOption = (idx) => {
 };
 
 window.nextQuestion = () => {
-    if (state.userAnswers[state.currentQuestionIndex] === undefined && state.questionsStatus[state.currentQuestionIndex] !== 'review') {
+    // Agar option select kiya hai, toh status 'answered' (emerald) mark karein
+    if (state.userAnswers[state.currentQuestionIndex] !== undefined) {
+        state.questionsStatus[state.currentQuestionIndex] = 'answered';
+    } 
+    // Agar nahi kiya aur review bhi nahi hai, toh 'not-answered' (rose)
+    else if (state.questionsStatus[state.currentQuestionIndex] !== 'review') {
         state.questionsStatus[state.currentQuestionIndex] = 'not-answered';
     }
+
     if (state.currentQuestionIndex < state.testData.length - 1) {
         state.currentQuestionIndex++;
         renderQuestion();
+    } else {
+        // Agar last question hai, toh bas UI update karein (sidebar refresh)
+        updateSidebarUI();
     }
 };
 
