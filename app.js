@@ -22,8 +22,7 @@ let state = {
 // --- NAYA: Multi-select selections state ---
 let selections = {
     sections: [],
-    topics: [],
-    subtopics: []
+    topics: []
 };
 
 
@@ -38,16 +37,22 @@ window.toggleDropdown = (id) => {
 
 function updateDisplay(id) {
     const display = document.getElementById(`${id}-display`);
-    const items = selections[`${id}s`]; // e.g., selections.sections
+    
+    // ERROR FIX: Agar element nahi mila toh function yahi ruk jayega
+    if (!display) {
+        console.warn(`Element ID '${id}-display' HTML mein nahi mila.`);
+        return; 
+    }
+
+    const items = selections[`${id}s`]; 
     
     if (items.length === 0) {
         display.innerHTML = `<span class="text-slate-400 text-sm">Select ${id}</span>`;
     } else {
         display.innerHTML = items.map(item => `
-            <div class="bg-blue-600 text-white text-[11px] font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+            <div class="bg-blue-600 text-white text-[11px] font-bold px-2 py-1 rounded-lg flex items-center gap-1">
                 ${item} 
-                <i class="fas fa-times cursor-pointer ml-1 hover:text-blue-200" 
-                   onclick="event.stopPropagation(); handleToggle('${id}', '${item}')"></i>
+                <i class="fas fa-times cursor-pointer" onclick="event.stopPropagation(); handleToggle('${id}', '${item}')"></i>
             </div>
         `).join('');
     }
@@ -57,42 +62,18 @@ function updateDisplay(id) {
 window.handleToggle = async (type, val) => {
     const arr = selections[`${type}s`];
     const index = arr.indexOf(val);
+    if (index > -1) arr.splice(index, 1); else arr.push(val);
     
-    if (index > -1) arr.splice(index, 1);
-    else arr.push(val);
-    
+    // Refresh UI
     updateDisplay(type);
-
-    const sub = document.getElementById('subject').value;
     
-    // 🔥 FIX: Sirf dependent levels ko update karein, current level ko dobara fetch na karein
+    // Trigger Children
+    const sub = document.getElementById('subject').value;
     if (type === 'section') {
-        selections.topics = []; selections.subtopics = [];
-        updateDisplay('topic'); updateDisplay('subtopic');
-        
-        // Sirf tab fetch karein jab sections selected hon
-        if (selections.sections.length > 0) {
-            await fetchMultiDropdown("topic", "topic", [
-                {field: "sub", value: sub}, 
-                {field: "section", value: selections.sections}
-            ]);
-        } else {
-            // Agar section khali kar diya toh niche wale dropdowns bhi khali
-            document.getElementById('topic-list').innerHTML = "";
-            document.getElementById('subtopic-list').innerHTML = "";
-        }
-    } 
-    else if (type === 'topic') {
-        selections.subtopics = [];
-        updateDisplay('subtopic');
-        if (selections.topics.length > 0) {
-            await fetchMultiDropdown("subtopic", "subtopic", [
-                {field: "sub", value: sub}, 
-                {field: "topic", value: selections.topics}
-            ]);
-        } else {
-            document.getElementById('subtopic-list').innerHTML = "";
-        }
+        selections.topics = [];
+        updateDisplay('topic');
+        if(selections.sections.length > 0) 
+            await fetchMultiDropdown("topic", "topic", [{field: "sub", value: sub}, {field: "section", value: selections.sections}]);
     }
 };
 
@@ -147,17 +128,16 @@ async function fetchDropdownData(fieldName, elementId, filters = []) {
 
 // --- UPDATED: Dynamic Dropdown Engine ---
 
-async function fetchMultiDropdown(fieldName, elementId, filters = []) {
+window.fetchMultiDropdown = async (fieldName, elementId, filters = []) => {
     const listEl = document.getElementById(`${elementId}-list`);
-    if(!listEl) return;
+    if (!listEl) return;
 
     try {
         let q = collection(db, "questions");
         filters.forEach(f => {
-            // Agar value array hai toh 'in' query use karein
-            if(Array.isArray(f.value) && f.value.length > 0) {
+            if (Array.isArray(f.value) && f.value.length > 0) {
                 q = query(q, where(f.field, "in", f.value));
-            } else if(f.value && !Array.isArray(f.value)) {
+            } else if (f.value) {
                 q = query(q, where(f.field, "==", f.value));
             }
         });
@@ -168,18 +148,13 @@ async function fetchMultiDropdown(fieldName, elementId, filters = []) {
         listEl.innerHTML = uniqueValues.map(val => {
             const isSelected = selections[`${elementId}s`].includes(val);
             return `
-                <div class="p-3 hover:bg-slate-50 cursor-pointer flex justify-between items-center text-sm border-b border-slate-50 last:border-0 ${isSelected ? 'text-blue-600 font-bold bg-blue-50' : 'text-slate-700'}" 
+                <div class="p-3 cursor-pointer flex justify-between items-center text-sm ${isSelected ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-700'}" 
                      onclick="handleToggle('${elementId}', '${val}')">
-                    ${val}
-                    ${isSelected ? '<i class="fas fa-check text-xs"></i>' : ''}
+                    ${val} ${isSelected ? '<i class="fas fa-check text-xs"></i>' : ''}
                 </div>`;
         }).join('');
-        
-        if(uniqueValues.length === 0) listEl.innerHTML = `<div class="p-4 text-slate-400 text-xs italic text-center">No data available</div>`;
-        
-        updateDisplay(elementId);
-    } catch (err) { console.error("Fetch Error:", err); }
-}
+    } catch (err) { console.error("Dropdown Error:", err); }
+};
 
 window.handleSubjectChange = async () => {
     const sub = document.getElementById('subject').value;
@@ -293,143 +268,41 @@ function resetDropdowns(ids) {
 
 // --- Dynamic Smart Test Generation ---
 window.generateTest = async () => {
-    // 1. Config gathering (No change)
-    const config = {
-        sub: document.getElementById('subject').value,
-        difficulty: document.getElementById('difficulty').value,
-        count: parseInt(document.getElementById('num-questions').value) || 5,
-        time: parseInt(document.getElementById('time-limit').value) || 10
-    };
+    const sub = document.getElementById('subject').value;
+    const count = parseInt(document.getElementById('num-questions').value) || 5;
 
-    const mapDiff = (d) => (d === "Moderate" ? "Medium" : d);
-
-    if (!config.sub) {
-        alert("Bhai, kam se kam Subject toh select kar lo! 📚");
-        return;
-    }
-
-    // 2. Mixed Weightage Logic (No change)
-    let weightage = { easy: 30, moderate: 50, hard: 20 };
-    if (config.difficulty === "Mixed") {
-        weightage.easy = parseInt(document.getElementById('w-easy').value) || 0;
-        weightage.moderate = parseInt(document.getElementById('w-moderate').value) || 0;
-        weightage.hard = parseInt(document.getElementById('w-hard').value) || 0;
-
-        if (weightage.easy + weightage.moderate + weightage.hard !== 100) {
-            alert(`Bhai, total weightage 100% hona chahiye! (Abhi ${weightage.easy + weightage.moderate + weightage.hard}% hai)`);
-            return;
-        }
-    }
-
+    if (!sub) return alert("Subject select karein!");
+    
+    // Show Loading
     showScreen('loading');
 
     try {
-        let finalQuestions = [];
-
-        // --- NAYA: Helper function to fetch data in chunks of 30 ---
-        // Ye aapke filters ko handle karega bina 30-limit error ke
-       const fetchAllWithChunks = async (colRef, baseConstraints, difficulty) => {
-    const results = [];
-    
-    // LOGIC: Jo sabse deep level selected hai, sirf usi ka filter lagao
-    let filterArray = [];
-    let filterField = "";
-
-    if (selections.subtopics && selections.subtopics.length > 0) {
-        filterArray = selections.subtopics;
-        filterField = "subtopic";
-    } else if (selections.topics && selections.topics.length > 0) {
-        filterArray = selections.topics;
-        filterField = "topic";
-    } else if (selections.sections && selections.sections.length > 0) {
-        filterArray = selections.sections;
-        filterField = "section";
-    }
-
-    // Agar koi multi-select filter nahi hai (sirf Subject hai)
-    if (filterArray.length === 0) {
-        const q = query(colRef, where("sub", "==", config.sub), where("difficulty", "==", difficulty));
-        const snap = await getDocs(q);
-        return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    }
-
-    // Chunking logic (30 limit bypass)
-    for (let i = 0; i < filterArray.length; i += 30) {
-        const chunk = filterArray.slice(i, i + 30);
-        
-        // Yahan sirf EK main filter field use hogi (subtopic OR topic OR section)
-        // Isse "Strict AND" ki wajah se data kam aane wali problem khatam ho jayegi
-        const q = query(
-            colRef, 
-            where("sub", "==", config.sub),
-            where(filterField, "in", chunk), 
-            where("difficulty", "==", difficulty)
-        );
-        
-        const snap = await getDocs(q);
-        snap.forEach(doc => results.push({ id: doc.id, ...doc.data() }));
-    }
-    return results;
-};
-
-        const shuffleArray = (array) => {
-            for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-            }
-            return array;
-        };
-
-        // 4. Fetching Logic (Updated with Chunk Helper)
         const colRef = collection(db, "questions");
+        let q;
 
-        if (config.difficulty === "Mixed") {
-            const counts = {
-                Easy: Math.round(config.count * (weightage.easy / 100)),
-                Moderate: Math.round(config.count * (weightage.moderate / 100)),
-                Hard: Math.round(config.count * (weightage.hard / 100))
-            };
-            
-            let currentTotal = counts.Easy + counts.Moderate + counts.Hard;
-            if (currentTotal !== config.count) {
-                counts.Moderate += (config.count - currentTotal);
-            }
-
-            const levels = [
-                { db: 'Easy', req: counts.Easy },
-                { db: 'Medium', req: counts.Moderate },
-                { db: 'Hard', req: counts.Hard }
-            ];
-
-            for (const lvl of levels) {
-                if (lvl.req <= 0) continue;
-                // Using chunk helper here
-                let levelPool = await fetchAllWithChunks(colRef, [], lvl.db);
-                const picked = shuffleArray(levelPool).slice(0, lvl.req);
-                finalQuestions.push(...picked);
-            }
+        // Query Logic based on selections
+        if (selections.topics.length > 0) {
+            q = query(colRef, where("sub", "==", sub), where("topic", "in", selections.topics.slice(0, 30)));
+        } else if (selections.sections.length > 0) {
+            q = query(colRef, where("sub", "==", sub), where("section", "in", selections.sections.slice(0, 30)));
         } else {
-            const targetDiff = mapDiff(config.difficulty); 
-            // Using chunk helper here too
-            let pool = await fetchAllWithChunks(colRef, [], targetDiff);
-            finalQuestions = shuffleArray(pool).slice(0, config.count);
+            q = query(colRef, where("sub", "==", sub));
         }
 
-        if (finalQuestions.length === 0) {
-            throw new Error("Bhai, is combination mein questions nahi mile. Filter badal ke dekho!");
-        }
+        const snapshot = await getDocs(q);
+        let pool = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // 5. Finalize & Start (No change)
-        state.testData = shuffleArray(finalQuestions);
+        if (pool.length === 0) throw new Error("Is selection mein questions nahi mile.");
+
+        // Shuffle and pick
+        state.testData = pool.sort(() => 0.5 - Math.random()).slice(0, count);
         state.currentQuestionIndex = 0;
         state.userAnswers = {};
         state.questionsStatus = {};
-        state.timeRemaining = config.time * 60;
-        
-        startTest();
+        state.timeRemaining = (parseInt(document.getElementById('time-limit').value) || 10) * 60;
 
+        startTest();
     } catch (err) {
-        console.error("Test Gen Error:", err);
         alert(err.message);
         showScreen('setup');
     }
@@ -684,7 +557,28 @@ state.testData.forEach((q, i) => {
         </div>`;
 });
 
+window.resetApp = () => {
+    // 1. Reset the state object
+    state = {
+        testData: [],
+        currentQuestionIndex: 0,
+        userAnswers: {},
+        questionsStatus: {},
+        timeRemaining: 0,
+        timerInterval: null,
+        isTestActive: false
+    };
 
+    // 2. Clear result UI container
+    const container = document.getElementById('analysis-container');
+    if (container) container.innerHTML = '';
+
+    // 3. Switch screen back to setup
+    showScreen('setup');
+    
+    // Optional: Scroll to top
+    window.scrollTo(0, 0);
+};
 // FinishTest function ke andar:
 const totalQuestions = state.testData.length;
 const scorePct = Math.round((correct / totalQuestions) * 100);
