@@ -1,19 +1,18 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getDatabase } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+ const firebaseConfig = {
+    apiKey: "AIzaSyAi1P7aNFujQkwMAV7gtLKcQ_Rk4rR5Sqs",
+    authDomain: "ai-mock-test-1bc80.firebaseapp.com",
+    databaseURL: "https://ai-mock-test-1bc80-default-rtdb.firebaseio.com",
+    projectId: "ai-mock-test-1bc80",
+    storageBucket: "ai-mock-test-1bc80.firebasestorage.app",
+    messagingSenderId: "741109659244",
+    appId: "1:741109659244:web:6366b124def5e1114eca49",
+    measurementId: "G-H2B8P4DPJM"
+  };
 
-const firebaseConfig = {
-  apiKey: "AIzaSyC2mCfaYxxShG6pDmBxm61hqpoEqCN63Zk",
-  authDomain: "claim-3b5c0.firebaseapp.com",
-  databaseURL: "https://claim-3b5c0-default-rtdb.firebaseio.com",
-  projectId: "claim-3b5c0",
-  storageBucket: "claim-3b5c0.firebasestorage.app",
-  messagingSenderId: "12476778425",
-  appId: "1:12476778425:web:dc9d094b489237ca5b5868"
-};
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-// Export the Firestore instance
-export const db = getFirestore(app);
+const app = initializeApp(firebaseConfig); 
+export const db = getDatabase(app);
