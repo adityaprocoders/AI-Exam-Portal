@@ -7,6 +7,9 @@ import {
     limit 
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
+
+import { ref, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
 // Global State
 let state = {
     testData: [],
@@ -25,6 +28,9 @@ let selections = {
     topics: []
 };
 
+const firebaseConfig = {
+  databaseURL: "https://ai-mock-test-1bc80-default-rtdb.firebaseio.com" // Bina slash ke
+};
 
 // --- NAYA: Multi-Select UI Logic ---
 window.toggleDropdown = (id) => {
@@ -86,13 +92,34 @@ const screens = {
 };
 
 // --- Initialization ---
-window.addEventListener('DOMContentLoaded', () => {
-    initApp();
-});
+window.addEventListener('DOMContentLoaded', initApp);
 
-async function initApp() {
-    console.log("Portal Initializing...");
-    await fetchDropdownData("sub", "subject");
+async function initApp() { 
+    const subjectSelect = document.getElementById('subject');
+    
+    try {
+        const snapshot = await get(ref(db, 'questions'));
+        if (snapshot.exists()) {
+            const subjects = Object.keys(snapshot.val());
+            subjectSelect.innerHTML = '<option value="">Select Subject</option>';
+            subjects.forEach(sub => {
+                subjectSelect.innerHTML += `<option value="${sub}">${sub}</option>`;
+            });
+        }
+    } catch (err) {
+        console.error("Database connection error:", err);
+    }
+}
+
+function renderSubjects(subjects) {
+    const selectEl = document.getElementById('subject');
+    if (!selectEl) return;
+    
+    selectEl.innerHTML = '<option value="">Select Subject</option>';
+    subjects.forEach(sub => {
+        selectEl.innerHTML += `<option value="${sub}">${sub}</option>`;
+    });
+    console.log("UI updated with subjects.");
 }
 
 // --- Dynamic Dropdown Engine ---
@@ -133,18 +160,35 @@ window.fetchMultiDropdown = async (fieldName, elementId, filters = []) => {
     if (!listEl) return;
 
     try {
-        let q = collection(db, "questions");
-        filters.forEach(f => {
-            if (Array.isArray(f.value) && f.value.length > 0) {
-                q = query(q, where(f.field, "in", f.value));
-            } else if (f.value) {
-                q = query(q, where(f.field, "==", f.value));
-            }
-        });
-
-        const snapshot = await getDocs(q);
-        const uniqueValues = [...new Set(snapshot.docs.map(doc => doc.data()[fieldName]))].filter(Boolean).sort();
+        // Realtime DB mein 'questions' ke andar subject select hoga
+        // Hum subject filter ko lekar data fetch karenge
+        const subFilter = filters.find(f => f.field === 'sub');
+        const path = subFilter ? `questions/${subFilter.value}` : 'questions';
         
+        const snapshot = await get(ref(db, path));
+        
+        if (!snapshot.exists()) {
+            console.log("No data found at path:", path);
+            return;
+        }
+
+        const data = snapshot.val();
+        let uniqueValues = [];
+
+        // Structure ke mutabik logic:
+        if (fieldName === 'section') {
+            uniqueValues = Object.keys(data);
+        } else if (fieldName === 'topic') {
+            // Agar sections select hain, unke topics nikalna
+            selections.sections.forEach(sec => {
+                if (data[sec]) {
+                    uniqueValues.push(...Object.keys(data[sec]));
+                }
+            });
+        }
+
+        uniqueValues = [...new Set(uniqueValues)].sort();
+
         listEl.innerHTML = uniqueValues.map(val => {
             const isSelected = selections[`${elementId}s`].includes(val);
             return `
@@ -153,22 +197,17 @@ window.fetchMultiDropdown = async (fieldName, elementId, filters = []) => {
                     ${val} ${isSelected ? '<i class="fas fa-check text-xs"></i>' : ''}
                 </div>`;
         }).join('');
-    } catch (err) { console.error("Dropdown Error:", err); }
+
+    } catch (err) {
+        console.error("Dropdown Error:", err);
+    }
 };
 
 window.handleSubjectChange = async () => {
     const sub = document.getElementById('subject').value;
-    
-    // Resetting ALL selections and displays
-    selections = { sections: [], topics: [], subtopics: [] }; 
-    updateDisplay('section'); 
-    updateDisplay('topic'); 
-    updateDisplay('subtopic');
-
-    if(sub) {
-        // Sirf section load karo, topic tab load hoga jab section select hoga
-        await fetchMultiDropdown("section", "section", [{field: "sub", value: sub}]); 
-    }
+    selections = { sections: [], topics: [] };
+    updateDisplay('section'); updateDisplay('topic');
+    if(sub) await window.fetchMultiDropdown("section", "section", [{field: "sub", value: sub}]);
 };
 
 // --- NAYA: Render List Only (Error fix karne ke liye) ---
@@ -266,59 +305,79 @@ function resetDropdowns(ids) {
     });
 }
 
+const testRef = ref(db, 'questions/Analytical Ability & Logical Reasoning/Deductive Reasoning/Logical Statement');
+get(testRef).then(snap => {
+    if(snap.exists()) {
+        console.log("Data reached:");
+    } else {
+        console.log("Still no data at deep path.");
+    }
+});
+
 // --- Dynamic Smart Test Generation ---
 window.generateTest = async () => {
     const sub = document.getElementById('subject').value;
-    const count = parseInt(document.getElementById('num-questions').value) || 5;
-
-    if (!sub) return alert("Subject select karein!");
+    const section = selections.sections[0]; 
+    const topic = selections.topics[0];
     
-    // Show Loading
+    // UI input se values lein
+    const numQuestions = parseInt(document.getElementById('num-questions').value) || 5;
+    const timeLimit = parseInt(document.getElementById('time-limit').value) || 10;
+    
+    if (!sub || !section || !topic) {
+        alert("Please select Subject, Section, and Topic first!");
+        return;
+    }
+
     showScreen('loading');
 
     try {
-        const colRef = collection(db, "questions");
-        let q;
+        const path = `questions/${sub}/${section}/${topic}`;
+        const snapshot = await get(ref(db, path));
+        
+        if (!snapshot.exists()) throw new Error("No data found at path: " + path);
 
-        // Query Logic based on selections
-        if (selections.topics.length > 0) {
-            q = query(colRef, where("sub", "==", sub), where("topic", "in", selections.topics.slice(0, 30)));
-        } else if (selections.sections.length > 0) {
-            q = query(colRef, where("sub", "==", sub), where("section", "in", selections.sections.slice(0, 30)));
-        } else {
-            q = query(colRef, where("sub", "==", sub));
-        }
+        const rawData = snapshot.val();
+        const uniqueKey = Object.keys(rawData)[0];
+        const fullData = rawData[uniqueKey].data;
 
-        const snapshot = await getDocs(q);
-        let pool = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Yahan limit apply karein
+        state.testData = fullData.slice(0, numQuestions);
+        
+        // Time limit ko state mein set karein
+        state.timeRemaining = timeLimit * 60; 
+        
+        
+        startTest(); 
 
-        if (pool.length === 0) throw new Error("Is selection mein questions nahi mile.");
-
-        // Shuffle and pick
-        state.testData = pool.sort(() => 0.5 - Math.random()).slice(0, count);
-        state.currentQuestionIndex = 0;
-        state.userAnswers = {};
-        state.questionsStatus = {};
-        state.timeRemaining = (parseInt(document.getElementById('time-limit').value) || 10) * 60;
-
-        startTest();
     } catch (err) {
+        console.error("Fetch Error:", err);
         alert(err.message);
         showScreen('setup');
     }
 };
 
-// --- Core Test Logic ---
+const limitCount = parseInt(document.getElementById('num-questions').value) || 5;
+
 // --- Core Test Logic ---
 function startTest() {
     showScreen('test');
     state.isTestActive = true;
-    renderQuestion();
+    
+    // Timer update function call karein
+    updateTimerDisplay(); 
+    
     state.timerInterval = setInterval(() => {
         state.timeRemaining--;
         updateTimerDisplay();
-        if (state.timeRemaining <= 0) finishTest();
+        
+        if (state.timeRemaining <= 0) {
+            clearInterval(state.timerInterval);
+            finishTest();
+        }
     }, 1000);
+    
+    renderQuestion();
 }
 
 function renderQuestion() {
@@ -379,6 +438,7 @@ function renderQuestion() {
     }
 }
 
+
 function updateSidebarUI() {
     const paletteGrid = document.getElementById('palette-grid');
     if (!paletteGrid) return;
@@ -421,55 +481,32 @@ function updateTimerDisplay() {
     if (timerEl) timerEl.textContent = str;
 }
 
-
+ 
 window.jumpTo = (i) => { state.currentQuestionIndex = i; renderQuestion(); };
+window.prevQuestion = () => { if(state.currentQuestionIndex > 0) { state.currentQuestionIndex--; renderQuestion(); }};
+window.clearResponse = () => { delete state.userAnswers[state.currentQuestionIndex]; renderQuestion(); };
+window.markForReview = () => { window.nextQuestion(); };
+window.resetApp = () => location.reload(); 
 
-// Optimized selectOption function
+
+
+
 window.selectOption = (idx) => {
-    // State update karein
+    // 1. Answer save karein
     state.userAnswers[state.currentQuestionIndex] = idx;
-
-    // Poora renderQuestion call karne ke bajaye, sirf buttons update karein
-    const buttons = document.querySelectorAll('.option-card');
-    buttons.forEach((btn, i) => {
-        const circle = btn.querySelector('.shrink-0'); // Letter circle (A, B, C, D)
-        
-        if (i === idx) {
-            // Selected style
-            btn.classList.add('border-indigo-600', 'bg-indigo-50', 'ring-2', 'ring-indigo-100');
-            btn.classList.remove('border-slate-100');
-            circle.classList.add('bg-indigo-600', 'text-white');
-            circle.classList.remove('bg-slate-100', 'text-slate-500');
-        } else {
-            // Unselected style
-            btn.classList.remove('border-indigo-600', 'bg-indigo-50', 'ring-2', 'ring-indigo-100');
-            btn.classList.add('border-slate-100');
-            circle.classList.remove('bg-indigo-600', 'text-white');
-            circle.classList.add('bg-slate-100', 'text-slate-500');
-        }
-    });
-
-    // Sidebar ko update karein bina question re-render kiye
+    
+    // 2. UI ko refresh karein taaki selection dikhe
+    renderQuestion(); 
+    
+    // 3. Sidebar (Palette) update karein
     updateSidebarUI();
 };
 
 window.nextQuestion = () => {
-    // Agar option select kiya hai, toh status 'answered' (emerald) mark karein
-    if (state.userAnswers[state.currentQuestionIndex] !== undefined) {
-        state.questionsStatus[state.currentQuestionIndex] = 'answered';
-    } 
-    // Agar nahi kiya aur review bhi nahi hai, toh 'not-answered' (rose)
-    else if (state.questionsStatus[state.currentQuestionIndex] !== 'review') {
-        state.questionsStatus[state.currentQuestionIndex] = 'not-answered';
-    }
-
     if (state.currentQuestionIndex < state.testData.length - 1) {
         state.currentQuestionIndex++;
         renderQuestion();
-    } else {
-        // Agar last question hai, toh bas UI update karein (sidebar refresh)
-        updateSidebarUI();
-    }
+    } else { window.finishTest(); }
 };
 
 window.markForReview = () => {
@@ -477,7 +514,9 @@ window.markForReview = () => {
     if (state.currentQuestionIndex < state.testData.length - 1) {
         state.currentQuestionIndex++;
         renderQuestion();
-    } else { updateSidebarUI(); }
+    } else { 
+        updateSidebarUI(); 
+    }
 };
 
 window.clearResponse = () => {
@@ -486,158 +525,83 @@ window.clearResponse = () => {
     renderQuestion();
 };
 
-window.prevQuestion = () => { if(state.currentQuestionIndex > 0) { state.currentQuestionIndex--; renderQuestion(); }};
+window.prevQuestion = () => { 
+    if(state.currentQuestionIndex > 0) { 
+        state.currentQuestionIndex--; 
+        renderQuestion(); 
+    }
+};
 
 window.finishTest = () => {
     clearInterval(state.timerInterval);
-    showScreen('result');
+    document.getElementById('test-screen').classList.add('hidden');
+    document.getElementById('result-screen').classList.remove('hidden');
     
+    if (!state.testData || state.testData.length === 0) return;
+
     let correct = 0;
     let wrong = 0;
-    let skipped = 0;
     let analysisHtml = '';
 
-    // --- finishTest function ke andar loop ke part ko isse replace karein ---
+    // finishTest function ke andar analysisHtml wale part mein:
 state.testData.forEach((q, i) => {
-    const uAns = state.userAnswers[i];
-    const isCorrect = uAns !== undefined && uAns === q.correct;
+    const uAns = state.userAnswers[i]; // User ne jo index select kiya
+    const correctIndex = parseInt(q.correct); // Database se sahi index
     
-    if (uAns === undefined) skipped++;
-    else if (isCorrect) correct++;
-    else wrong++;
+    // Check if answered, correct or wrong
+    const isAttempted = uAns !== undefined;
+    const isCorrect = isAttempted && (uAns === correctIndex);
 
     analysisHtml += `
-        <div class="bg-white rounded-3xl p-6 shadow-sm border-l-8 ${uAns === undefined ? 'border-l-slate-300' : (isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500')} mb-6">
-            
-            <!-- Metadata Header Row -->
-            <div class="flex flex-wrap gap-2 mb-4 border-b border-slate-50 pb-3">
-                <span class="bg-blue-50 text-blue-700 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
-                    <i class="fas fa-book mr-1"></i>${q.sub || 'N/A'}
-                </span>
-                <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
-                    <i class="fas fa-layer-group mr-1"></i>${q.section || 'N/A'}
-                </span>
-                <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
-                    <i class="fas fa-tag mr-1"></i>${q.topic || 'N/A'}
-                </span>
-                <span class="bg-slate-50 text-slate-500 px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter">
-                    <i class="fas fa-list-ul mr-1"></i>${q.subtopic || 'N/A'}
-                </span>
-                <span class="px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-tighter ${q.difficulty === 'Hard' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'}">
-                    <i class="fas fa-signal mr-1"></i>${q.difficulty || 'N/A'}
-                </span>
+    <div class="bg-white rounded-3xl p-6 shadow-sm border-l-8 ${!isAttempted ? 'border-l-slate-300' : (isCorrect ? 'border-l-emerald-500' : 'border-l-rose-500')} mb-6">
+        <h4 class="text-lg font-bold text-slate-800 mb-4">${q.text}</h4>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="p-4 rounded-2xl ${!isAttempted ? 'bg-slate-50' : (isCorrect ? 'bg-emerald-50' : 'bg-rose-50')}">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Your Answer</p>
+                <p class="font-bold">${isAttempted ? (q.options[uAns] || 'Invalid') : 'Not Attempted'}</p>
             </div>
+            
+            <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
+                <p class="text-[10px] font-bold text-emerald-600 uppercase">Correct Answer</p>
+                <p class="font-bold text-emerald-700">${q.options[correctIndex] || 'N/A'}</p>
+            </div>
+        </div>
 
-            <div class="flex justify-between items-center mb-3">
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Question ${i + 1}</span>
-                <span class="px-2 py-1 rounded text-[9px] font-bold uppercase ${isCorrect ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}">
-                    ${uAns === undefined ? 'Skipped' : (isCorrect ? 'Correct' : 'Incorrect')}
-                </span>
-            </div>
-            
-            <h4 class="text-lg font-bold text-slate-800 mb-4">${q.text}</h4>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div class="p-4 rounded-2xl ${uAns === undefined ? 'bg-slate-50' : (isCorrect ? 'bg-emerald-50 border border-emerald-100' : 'bg-rose-50 border border-rose-100')}">
-                    <p class="text-[10px] font-bold text-slate-400 uppercase mb-1">Your Answer</p>
-                    <p class="font-bold ${isCorrect ? 'text-emerald-700' : 'text-rose-700'}">
-                        ${uAns !== undefined ? q.options[uAns] : 'Not Attempted'}
-                    </p>
-                </div>
-                <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
-                    <p class="text-[10px] font-bold text-emerald-600 uppercase mb-1">Correct Answer</p>
-                    <p class="font-bold text-emerald-700">${q.options[q.correct]}</p>
-                </div>
-            </div>
-
-            <div class="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
-                <p class="text-xs font-black text-indigo-600 uppercase mb-1 tracking-tighter">Explanation:</p>
-                <div class="text-sm text-indigo-900 leading-relaxed">${q.sol || 'No detailed explanation provided.'}</div>
-            </div>
-        </div>`;
+        <div class="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+            <p class="text-[10px] font-bold text-slate-500 uppercase">Solution</p>
+            <p class="text-sm text-slate-700 mt-1">${q.sol || 'No explanation provided.'}</p>
+        </div>
+    </div>`;
 });
 
-window.resetApp = () => {
-    // 1. Reset the state object
-    state = {
-        testData: [],
-        currentQuestionIndex: 0,
-        userAnswers: {},
-        questionsStatus: {},
-        timeRemaining: 0,
-        timerInterval: null,
-        isTestActive: false
-    };
-
-    // 2. Clear result UI container
-    const container = document.getElementById('analysis-container');
-    if (container) container.innerHTML = '';
-
-    // 3. Switch screen back to setup
-    showScreen('setup');
+    // Score update
+    const totalQuestions = state.testData.length;
+    const scorePct = Math.round((correct / totalQuestions) * 100);
     
-    // Optional: Scroll to top
-    window.scrollTo(0, 0);
-};
-// FinishTest function ke andar:
-const totalQuestions = state.testData.length;
-const scorePct = Math.round((correct / totalQuestions) * 100);
-const correctEl = document.getElementById('correct-count');
-const wrongEl = document.getElementById('wrong-count');
-const percentEl = document.getElementById('score-percent');
+    document.getElementById('correct-count').textContent = correct;
+    document.getElementById('wrong-count').textContent = wrong;
+    document.getElementById('score-percent').textContent = `${scorePct}%`;
 
-if (correctEl) correctEl.textContent = correct;
-if (wrongEl) wrongEl.textContent = wrong;
-if (percentEl) percentEl.textContent = `${scorePct}%`;
-
-const circle = document.getElementById('score-circle');
-if(circle) {
-    const circumference = 440; // 2 * PI * r
-    // Offset calculation: jitna percentage hai, utna dash kam (gayab) karna hai
-    const offset = circumference - (scorePct / 100) * circumference;
-    
-    // Set both dasharray and offset
-    circle.style.strokeDasharray = circumference;
-    circle.style.strokeDashoffset = offset;
-}
-
-const badgeEl = document.getElementById('result-badge');
-if (badgeEl) {
-    if (scorePct >= 80) {
-        badgeEl.textContent = "Excellent! 🏆";
-        badgeEl.className = "mt-2 text-sm px-4 py-1 inline-block rounded-full bg-emerald-50 text-emerald-700 font-bold";
-    } else if (scorePct >= 50) {
-        badgeEl.textContent = "Good Effort 👍";
-        badgeEl.className = "mt-2 text-sm px-4 py-1 inline-block rounded-full bg-blue-50 text-blue-700 font-bold";
-    } else {
-        badgeEl.textContent = "Keep Practicing! 💪";
-        badgeEl.className = "mt-2 text-sm px-4 py-1 inline-block rounded-full bg-rose-50 text-rose-700 font-bold";
-    }
-}
-
-
-
-
-
-    // 4. Inject Analysis
+    // CRITICAL: Analysis container mein HTML inject karna
     const container = document.getElementById('analysis-container');
-    if(container) {
+    if (container) {
         container.innerHTML = analysisHtml;
-        // Re-render MathJax for solutions
+        // Agar MathJax use kar rahe hain toh typeset call karein
         if (window.MathJax) MathJax.typesetPromise([container]);
     }
 };
 
-
-// Dropdown change hone par box show/hide karega
-document.getElementById('difficulty').addEventListener('change', (e) => {
-    const weightageBox = document.getElementById('weightage-section');
-    if (e.target.value === 'Mixed') {
-        weightageBox.classList.remove('hidden');
-    } else {
-        weightageBox.classList.add('hidden');
-    }
-});
+// DIFFICULTY dropdown fix
+const diffEl = document.getElementById('difficulty');
+if (diffEl) {
+    diffEl.addEventListener('change', (e) => {
+        const weightageBox = document.getElementById('weightage-section');
+        if (weightageBox) {
+            weightageBox.classList.toggle('hidden', e.target.value !== 'Mixed');
+        }
+    });
+}
 
 function showScreen(screenKey) {
     Object.values(screens).forEach(s => s.classList.add('hidden'));
